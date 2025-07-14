@@ -57,19 +57,19 @@ def get_dp_dt_sat(T_k, fluid):
     P_minus = CP.PropsSI('P', 'T', T_k - 0.01, 'Q', 0, fluid)
     return (P_plus - P_minus) / 0.02
 
-def calculate_omega(P1_bar, T1_c, fluid):
-    T1_k = T1_c + 273.15
-    h_lg = CP.PropsSI('H', 'T', T1_k, 'Q', 1, fluid) - CP.PropsSI('H', 'T', T1_k, 'Q', 0, fluid)
-    c_pl = CP.PropsSI('C', 'T', T1_k, 'Q', 0, fluid)
-    rho_l = CP.PropsSI('D', 'T', T1_k, 'Q', 0, fluid)
+def calculate_omega_sat(T_sat_k, fluid):
+    h_lg = CP.PropsSI('H', 'T', T_sat_k, 'Q', 1, fluid) - CP.PropsSI('H', 'T', T_sat_k, 'Q', 0, fluid)
+    c_pl = CP.PropsSI('C', 'T', T_sat_k, 'Q', 0, fluid)
+    rho_l = CP.PropsSI('D', 'T', T_sat_k, 'Q', 0, fluid)
     v_l = 1.0 / rho_l
-    dp_dt = get_dp_dt_sat(T1_k, fluid)
-    omega = (c_pl * T1_k * v_l / (h_lg**2)) * dp_dt
-    return omega
+    dp_dt = get_dp_dt_sat(T_sat_k, fluid)
+    omega_sat = (c_pl * T_sat_k * v_l / ((h_lg/1000)**2)) * (dp_dt/1000)
+    return omega_sat
 
 def get_supercharging_state(P1_bar, T1_c, fluid):
-    P_sat_bar = CP.PropsSI('P', 'T', T1_c + 273.15, 'Q', 0, fluid) / 100000
-    omega_sat = calculate_omega(P_sat_bar, T1_c, fluid)
+    T_sat_k = T1_c + 273.15
+    P_sat_bar = CP.PropsSI('P', 'T', T_sat_k, 'Q', 0, fluid) / 1e5
+    omega_sat = calculate_omega_sat(T_sat_k, fluid)  # Correctly evaluated at saturation
     eta_st = (2 * omega_sat) / (1 + 2 * omega_sat)
     state = 'high' if P_sat_bar < (eta_st * P1_bar) else 'low'
     return state, omega_sat, eta_st
@@ -162,18 +162,18 @@ def run_models(P1_input, P1_unit, T1_input, T1_unit, D_mm, Cd, num_ports, dp_uni
     plt.grid(True, which='both', linestyle='--', linewidth=0.5)
     plt.tight_layout()
     plt.show()
-    # plt.figure(figsize=(12, 4))
-    # plt.plot(delta_p_exp, percent_error_nino, 'r-^', label='Nino & Razavi Model')
-    # plt.plot(delta_p_exp, percent_error_dyer, 'g-s', label='Dyer NHNE Model')
-    # plt.axhline(y=mape_nino, color='r', linestyle='--', label=f'Nino & Razavi MAPE: {mape_nino:.2f}%')
-    # plt.axhline(y=mape_dyer, color='g', linestyle='--', label=f'Dyer NHNE MAPE: {mape_dyer:.2f}%')
-    # plt.title('Percent Error of Mass Flow Rate Prediction vs Experiment', fontsize=15)
-    # plt.xlabel(f'Injector ΔP ({dp_unit})', fontsize=14)
-    # plt.ylabel('Percent Error (%)', fontsize=14)
-    # plt.legend(fontsize=11)
-    # plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    # plt.tight_layout()
-    # plt.show()
+    plt.figure(figsize=(12, 4))
+    plt.plot(delta_p_exp, percent_error_nino, 'r-^', label='Nino & Razavi Model')
+    plt.plot(delta_p_exp, percent_error_dyer, 'g-s', label='Dyer NHNE Model')
+    plt.axhline(y=mape_nino, color='r', linestyle='--', label=f'Nino & Razavi MAPE: {mape_nino:.2f}%')
+    plt.axhline(y=mape_dyer, color='g', linestyle='--', label=f'Dyer NHNE MAPE: {mape_dyer:.2f}%')
+    plt.title('Percent Error of Mass Flow Rate Prediction vs Experiment', fontsize=15)
+    plt.xlabel(f'Injector ΔP ({dp_unit})', fontsize=14)
+    plt.ylabel('Percent Error (%)', fontsize=14)
+    plt.legend(fontsize=11)
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    plt.show()
     summary = pd.DataFrame({
         'Model': ['Nino & Razavi (2019) Proposed', 'Dyer (NHNE) (Waxman/Dyer)'],
         'MAPE (%)': [mape_nino, mape_dyer]
