@@ -115,7 +115,7 @@ def calculate_omega(P1_bar, T1_c, fluid):
     rho_l = CP.PropsSI('D', 'T', T1_k, 'Q', 0, fluid)
     v_l = 1.0 / rho_l
     dp_dt = get_dp_dt_sat(T1_k, fluid)
-    omega = (c_pl * T1_k * v_l / (h_lg**2)) * dp_dt
+    omega = (c_pl * T1_k * v_l / ((h_lg/1000)**2)) * (dp_dt/1000)
     return omega
 
 def get_supercharging_state(P1_bar, T1_c, fluid):
