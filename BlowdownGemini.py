@@ -38,32 +38,27 @@ sys.setrecursionlimit(50000)
 
 
 #-------------------------------------------------------------------------------
-# Initial Parameters:
-fluids = 'N2O' # Fluid to be used in the model, nitrous oxide
+# Initial Conditions
+fluids = 'N2O'  # Fluid to be used in the model
 
-# Initial liquid nitrous oxide mass in kg
-targetLiquidMass = 14
+# --- TANK AND PROPELLANT ---
+targetLiquidMass = 3.5  # Initial liquid nitrous oxide mass (kg)
+temperature = 273.15 + 10      # Expected tank temperature at launch (K)
+tankV = 0.00454   # Total tank volume (m^3)
 
-# Orifice count and diameter
-oCount = 16
-oArea = 0.0000064
+# --- INJECTOR PARAMETERS ---
+oCount = 4
+D_mm = 1              # Injector orifice diameter (mm)
+oArea = math.pi*(D_mm/1000)**2/4        # Area of a single orifice (m^2)
+Cd = 0.66                # Injector discharge coefficient (dimensionless)
 
-# Total orifice area in m^2
-a0 = oCount * oArea
+# --- COMBUSTION CHAMBER PRESSURE ---
+# The Dyer model requires the downstream pressure to calculate flow rate.
+P_chamber_bar = 20 # Convert to bar for calculations
 
-# Injector Cd (dimensionless)
-Cd = 0.75
-
-# Expected tank temperature at launch in K
-temperature = 300
-
-# Total tank volume in m^3
-tankV = 0.026622735858012
-tankVGal = Decimal(tankV*264.172)
-
-# IMPORTANT: Time step that controls model fidelity, dV for initial conditions
-timeStep = 0.001
-dV = 0.0001
+# --- SIMULATION CONTROL ---
+timeStep = 0.001         # Time step for the simulation (s)
+dV = 0.0001   
 
 # Arrays for the final output
 denseArr = []
@@ -112,7 +107,7 @@ def burnellEmpCoeff (press): # Linear approximation for the empirical coefficien
 def injectorMassFlow (temp): # Calculates the volumetric flow rate per unit time dV/dt across the injector
     press = PropsSI ("P", "T", temp, "Q", 0, fluids)
     dens = PropsSI ("D", "T", temp, "Q", 0, fluids)
-    mDot = Cd*a0*np.sqrt(2*dens*(press - press*(1 - burnellEmpCoeff(press)))) # Burnell's equation
+    mDot = Cd*oArea*np.sqrt(2*dens*(press - press*(1 - burnellEmpCoeff(press)))) # Burnell's equation
     return mDot
 
 def vaporizationH (temp): # Enthalpy of vaporization for nitrous oxide
@@ -177,7 +172,7 @@ plt.ylim(0, maxValPress + 100)
 plt.plot(timeArr, pressArr)
 plt.xlabel('Time (s)')
 plt.ylabel('Pressure (PSI)')
-plt.title('Tank Volume: ' + str(tankVGal.quantize(Decimal('.01'))) + ' gal. Initial Nitrous Temp (K): ' + str(temperature))
+plt.title('Tank Volume: ' + str(tankV.quantize(Decimal('.01'))) + 'L. Initial Nitrous Temp (K): ' + str(temperature))
 plt.grid(linewidth = '0.5')
 
 plt.figure(2)
@@ -188,7 +183,7 @@ plt.ylim(0, maxValMDot + 1)
 plt.plot(timeArr, massFlowArr)
 plt.xlabel('Time (s)')
 plt.ylabel('Mass Flow Rate (kg/s)')
-plt.title('Tank Volume: ' + str(tankVGal.quantize(Decimal('.01'))) + ' gal. Initial Nitrous Temp (K): ' + str(temperature))
+plt.title('Tank Volume: ' + str(tankV.quantize(Decimal('.01'))) + 'L. Initial Nitrous Temp (K): ' + str(temperature))
 plt.grid(linewidth = '0.5')
 
 plt.show()
