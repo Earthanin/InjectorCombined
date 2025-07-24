@@ -1,6 +1,6 @@
 # --------------------------------------------------------------
 # Hybrid-Injector Modeller + Tank Blow-Down GUI
-# (c) 2023-25    •    Based on original script by Aadam Awad + your mods
+# (c) 2023-25    •    Based on original script by Aadam Awad + Tanin's Modifications
 #
 # Fully Corrected and Enhanced by Gemini:
 # - Integrated the detailed equilibrium blowdown model from BlowdownGeminiDyer.py.
@@ -238,7 +238,7 @@ def run_threaded_blowdown(params, result_queue):
         initial_liquid_mass = initial_state['liq_mass']
         
         # --- Simulation Setup ---
-        time, dt = 0.0, 0.005 # Using a slightly larger but still fine time step
+        time, dt = 0.0, 0.01 # Change to a smaller value for a more accurate simulation
         time_vals, mdot_vals, p1_vals, temp_vals_c = [], [], [], []
         
         total_steps = int(duration_s / dt)
@@ -252,7 +252,7 @@ def run_threaded_blowdown(params, result_queue):
             except ValueError:
                 break # Exit if temp drops out of range
 
-            if current_liq_mass < 0.01: # Stop if propellant is depleted
+            if current_liq_mass < 0.001: # Stop if propellant is depleted
                 break
             
             # --- STEP 1: Get current properties and calculate Mass Flow ---
@@ -403,8 +403,7 @@ def check_thread_progress():
             progress_bar['value'] = 100
             
             res = message['results']
-            total_m_vals = res['initial_mass_kg'] - (np.array(res['p1_vals']) * 0) # Placeholder, correct calculation needed
-            # Correct calculation of cumulative mass
+
             total_m_vals = np.cumsum(np.array(res['mdot_vals']) * (res['time_vals'][1] - res['time_vals'][0] if len(res['time_vals']) > 1 else 0))
 
             p2_vals = np.full_like(res['p1_vals'], float(entry_P2.get()) / (14.5038 if combo_P2unit.get() == 'psi' else 1))
