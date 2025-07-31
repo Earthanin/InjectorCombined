@@ -224,6 +224,7 @@ def run_threaded_blowdown(params, result_queue):
         model_name = params['model_name']; P2_bar = params['P2_bar']
         D_mm = params['D_mm']; Cd = params['Cd']; n_ports = params['n_ports']
         duration_s = params['duration_s']
+        pipe_loss_bar = params['pipe_loss_bar'] # --- NEW ---
 
         # --- Initialization ---
         initial_state = get_initial_tank_conditions_blowdown(initial_mass, T_c, V_tank, fluid)
@@ -239,8 +240,8 @@ def run_threaded_blowdown(params, result_queue):
         
         # --- Simulation Setup ---
         time, dt = 0.0, 0.01 # Change to a smaller value for a more accurate simulation
-        time_vals, mdot_vals, p1_vals, temp_vals_c = [], [], [], []
-        
+        time_vals, mdot_vals, p1_vals, temp_vals_c, p_injector_vals = [], [], [], [], [] # --- MODIFIED ---
+
         total_steps = int(duration_s / dt)
         
         # --- Main Simulation Loop (from BlowdownGeminiDyer.py) ---
@@ -256,15 +257,26 @@ def run_threaded_blowdown(params, result_queue):
                 break
             
             # --- STEP 1: Get current properties and calculate Mass Flow ---
-            props1 = get_saturated_liquid_properties(fluid, cur_temp - 273.15)
-            if props1 is None: break
+            props1_tank = get_saturated_liquid_properties(fluid, cur_temp - 273.15)
+            if props1_tank is None: break
 
-            mDot = calculate_mdot_from_properties(props1, P2_bar, D_mm, n_ports, Cd, fluid, model_name)
+            # --- MODIFIED: Account for pipe pressure loss ---
+            P_injector_inlet_bar = props1_tank['P1_bar'] - pipe_loss_bar
+            if P_injector_inlet_bar <= P2_bar:
+                break # Stop if driving pressure is gone
+
+            # Create a new properties dictionary for the injector inlet.
+            # The fluid state (rho, h, s) is from the tank, but the pressure driving the flow is reduced.
+            props1_injector = props1_tank.copy()
+            props1_injector['P1_bar'] = P_injector_inlet_bar
+
+            mDot = calculate_mdot_from_properties(props1_injector, P2_bar, D_mm, n_ports, Cd, fluid, model_name)
             if mDot <= 0: break
                 
             # Append data for plotting
             time_vals.append(time)
-            p1_vals.append(props1['P1_bar'])
+            p1_vals.append(props1_tank['P1_bar']) # This is the tank pressure
+            p_injector_vals.append(P_injector_inlet_bar) # This is the new pressure to plot
             mdot_vals.append(mDot)
             temp_vals_c.append(cur_temp - 273.15)
 
@@ -302,11 +314,13 @@ def run_threaded_blowdown(params, result_queue):
         final_results = {
             'time_vals': time_vals, 'mdot_vals': mdot_vals, 
             'p1_vals': p1_vals, 'initial_mass_kg': initial_liquid_mass,
+            'p_injector_vals': p_injector_vals, # --- NEW ---
             'total_mass_expelled': total_mass_expelled,
             'final_temp_c': temp_vals_c[-1],
             'summary': {
                 "Sim Steps": len(time_vals),
-                "Initial P1 (bar)": p1_vals[0], "Final P1 (bar)": p1_vals[-1],
+                "Initial P_tank (bar)": p1_vals[0], "Final P_tank (bar)": p1_vals[-1],
+                "Initial P_inj (bar)": p_injector_vals[0], "Final P_inj (bar)": p_injector_vals[-1], # --- MODIFIED ---
                 "Initial ṁ (kg/s)": mdot_vals[0], "Final ṁ (kg/s)": mdot_vals[-1],
                 "Total Mass Expelled": total_mass_expelled, "Final Temp (°C)": temp_vals_c[-1]
             }
@@ -321,6 +335,7 @@ def run_threaded_blowdown(params, result_queue):
 
 # ---------- C. ΔP-SWEEP PLOT ----------
 def run_models_vs_dp(P1_bar, T1_c, D_mm, Cd, n_ports, dp_unit, fluid="N2O"):
+    # Note: P1_bar here is already the pressure at the injector inlet
     data = waxman_exp_data_psi if dp_unit=="psi" else [(p/14.5038,m) for p,m in waxman_exp_data_psi]
     ΔP_exp = np.array([d[0] for d in data]); m_exp  = np.array([d[1] for d in data])
     m_dyer, m_nino = [], []
@@ -342,29 +357,42 @@ def run_models_vs_dp(P1_bar, T1_c, D_mm, Cd, n_ports, dp_unit, fluid="N2O"):
     plt.title('Percent Error'); plt.xlabel(f'ΔP ({dp_unit})'); plt.ylabel('%'); plt.grid(True,ls='--',lw=0.5); plt.legend(); plt.show()
 
 # ---------- D. TIME-DOMAIN SIMULATION (Orchestrator) ----------
-def run_time_simulation(is_blowdown, model_name, P1_bar_user, T1_c, P2_bar, D_mm, Cd, n_ports, V_tank_m3, duration_s, initial_mass_kg=0, fluid="N2O"):
+# --- MODIFIED signature to accept pipe_loss_bar ---
+def run_time_simulation(is_blowdown, model_name, P1_bar_user, T1_c, P2_bar, D_mm, Cd, n_ports, V_tank_m3, duration_s, initial_mass_kg=0, pipe_loss_bar=0.0, fluid="N2O"):
     # This function now acts as an orchestrator.
     # For non-blowdown (instantaneous) cases, it calculates directly.
     # For blowdown cases, it starts the threaded calculation.
     
     if not is_blowdown:
-        # --- Run FAST, non-blowdown simulation directly ---
-        props1 = get_subcooled_fluid_properties(fluid, T1_c, P1_bar_user)
+        # --- MODIFIED: Run FAST, non-blowdown simulation directly ---
+        P_injector_inlet_bar = P1_bar_user - pipe_loss_bar
+        if P_injector_inlet_bar <= P2_bar:
+            messagebox.showinfo("Result", "ṁ is zero or negative (Pressure after loss is <= P2).")
+            return
+            
+        # Get properties using the injector inlet pressure
+        props1 = get_subcooled_fluid_properties(fluid, T1_c, P_injector_inlet_bar)
         mdot = calculate_mdot_from_properties(props1, P2_bar, D_mm, n_ports, Cd, fluid, model_name)
         if mdot <= 0: messagebox.showinfo("Result", "ṁ is zero or negative."); return
-        time_vals = np.linspace(0, duration_s, 500); mdot_vals = np.full_like(time_vals, mdot)
-        total_m_vals = mdot * time_vals; p1_vals = np.full_like(time_vals, P1_bar_user)
-        final_T_c = T1_c
-        p2_vals = np.full_like(p1_vals, P2_bar); Δp_vals = np.array(p1_vals) - np.array(p2_vals)
-        plot_time_simulation_results(time_vals, mdot_vals, total_m_vals, p1_vals, p2_vals, Δp_vals, model_name)
+        
+        time_vals = np.linspace(0, duration_s, 500)
+        mdot_vals = np.full_like(time_vals, mdot)
+        total_m_vals = mdot * time_vals
+        p1_vals = np.full_like(time_vals, P1_bar_user) # Tank pressure
+        p_injector_vals = np.full_like(time_vals, P_injector_inlet_bar) # Injector inlet pressure
+        p2_vals = np.full_like(p1_vals, P2_bar)
+        Δp_vals = np.array(p_injector_vals) - np.array(p2_vals) # Delta-P is across the injector
+
+        plot_time_simulation_results(time_vals, mdot_vals, total_m_vals, p1_vals, p2_vals, Δp_vals, model_name, p_injector=p_injector_vals)
         # No summary for this simple case
         
     else:
-        # --- Run SLOW, blowdown simulation in a separate thread ---
+        # --- MODIFIED: Run SLOW, blowdown simulation in a separate thread ---
         params = {
             'T_c': T1_c, 'V_tank_m3': V_tank_m3, 'initial_mass_kg': initial_mass_kg,
             'fluid': fluid, 'model_name': model_name, 'P2_bar': P2_bar,
-            'D_mm': D_mm, 'Cd': Cd, 'n_ports': n_ports, 'duration_s': duration_s
+            'D_mm': D_mm, 'Cd': Cd, 'n_ports': n_ports, 'duration_s': duration_s,
+            'pipe_loss_bar': pipe_loss_bar # --- NEW ---
         }
         
         # Reset progress bar and status label
