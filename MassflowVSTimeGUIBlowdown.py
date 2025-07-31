@@ -8,6 +8,8 @@
 # - Added a real-time progress bar and status label for user feedback.
 # - Made the GUI fully responsive during long calculations.
 # - Maintained all original functionality for non-blowdown models.
+# - ADDED: Feed system pressure loss input and calculation.
+# - ADDED: Plotting for injector inlet pressure after feed system loss.
 # --------------------------------------------------------------
 
 import tkinter as tk
@@ -129,14 +131,14 @@ def calculate_mdot_from_properties(props1, P2_bar, D_mm, n_ports, Cd, fluid, mod
     # --- SPI Model ---
     if model_name == "SPI (Incompressible)":
         return A_tot * Cd * math.sqrt(2 * ρ1 * ΔP_bar * 1e5)
-    
+
     # --- Burnell Model ---
     if model_name == "Burnell (Choked)":
         P1_pa = P1_bar * 1e5
         C = -1.5267e-8 * P1_pa + 0.2279
         if C < 0: return 0.0
         return Cd * A_tot * math.sqrt(2 * ρ1 * P1_pa * C)
-    
+
     # --- Nino-Razavi Model ---
     if model_name == "Nino & Razavi":
         state, ω = get_supercharging_state(P1_bar, T_k, fluid)
@@ -160,7 +162,7 @@ def calculate_mdot_from_properties(props1, P2_bar, D_mm, n_ports, Cd, fluid, mod
         h2 = CP.PropsSI('H', 'P', P2_bar * 1e5, 'S', s1, fluid)
         G_hem = ρ2 * math.sqrt(max(2 * (h1 - h2), 0))
     except ValueError: G_hem = 0.0
-    
+
     denominator = P_sat - P2_bar
     if denominator <= 1e-12: κ = float('inf')
     else: κ = math.sqrt((P1_bar - P2_bar) / denominator)
@@ -180,7 +182,7 @@ def get_initial_tank_conditions_blowdown(m_liq_target, T_c, V_tank, fluid, dV_st
     try:
         liquid_density = CP.PropsSI("D", "T", T_k, "Q", 0, fluid)
         vapor_density = CP.PropsSI("D", "T", T_k, "Q", 1, fluid)
-        
+
         # Check for physical possibility first
         max_mass = V_tank * liquid_density
         if m_liq_target > max_mass:
@@ -195,7 +197,7 @@ def get_initial_tank_conditions_blowdown(m_liq_target, T_c, V_tank, fluid, dV_st
             vaporV -= dV_step
             if vaporV <= 0:
                 raise RuntimeError("Tank volume too small for target mass (iteration failed).")
-            
+
             current_mass = liquidV * liquid_density
             if current_mass >= m_liq_target:
                 vapor_mass = vaporV * vapor_density
@@ -237,13 +239,13 @@ def run_threaded_blowdown(params, result_queue):
         cur_vap_vol = initial_state['vap_vol']
         cur_temp = initial_state['temp_k']
         initial_liquid_mass = initial_state['liq_mass']
-        
+
         # --- Simulation Setup ---
         time, dt = 0.0, 0.01 # Change to a smaller value for a more accurate simulation
         time_vals, mdot_vals, p1_vals, temp_vals_c, p_injector_vals = [], [], [], [], [] # --- MODIFIED ---
 
         total_steps = int(duration_s / dt)
-        
+
         # --- Main Simulation Loop (from BlowdownGeminiDyer.py) ---
         while time < duration_s:
             # Get current liquid density to check if we've run out of propellant
@@ -255,7 +257,7 @@ def run_threaded_blowdown(params, result_queue):
 
             if current_liq_mass < 0.001: # Stop if propellant is depleted
                 break
-            
+
             # --- STEP 1: Get current properties and calculate Mass Flow ---
             props1_tank = get_saturated_liquid_properties(fluid, cur_temp - 273.15)
             if props1_tank is None: break
@@ -272,7 +274,8 @@ def run_threaded_blowdown(params, result_queue):
 
             mDot = calculate_mdot_from_properties(props1_injector, P2_bar, D_mm, n_ports, Cd, fluid, model_name)
             if mDot <= 0: break
-                
+            # --- END MODIFICATION ---
+
             # Append data for plotting
             time_vals.append(time)
             p1_vals.append(props1_tank['P1_bar']) # This is the tank pressure
@@ -284,7 +287,7 @@ def run_threaded_blowdown(params, result_queue):
             deltaV_expelled = (mDot / current_liq_dens) * dt
             cur_liq_vol -= deltaV_expelled
             cur_vap_vol += deltaV_expelled
-            
+
             # --- STEP 3: Re-establish Equilibrium via Boiling ---
             try:
                 vapor_dens = CP.PropsSI("D", "T", cur_temp, "Q", 1, fluid)
@@ -294,7 +297,7 @@ def run_threaded_blowdown(params, result_queue):
 
             mass_to_boil = deltaV_expelled * vapor_dens
             remaining_liquid_mass = (cur_liq_vol * current_liq_dens)
-            
+
             if remaining_liquid_mass > 1e-6:
                 delta_T = (mass_to_boil * h_fg) / (remaining_liquid_mass * c_p)
                 cur_temp -= delta_T
@@ -310,9 +313,9 @@ def run_threaded_blowdown(params, result_queue):
             return
 
         total_mass_expelled = initial_liquid_mass - (cur_liq_vol * CP.PropsSI("D", "T", cur_temp, "Q", 0, fluid))
-        
+
         final_results = {
-            'time_vals': time_vals, 'mdot_vals': mdot_vals, 
+            'time_vals': time_vals, 'mdot_vals': mdot_vals,
             'p1_vals': p1_vals, 'initial_mass_kg': initial_liquid_mass,
             'p_injector_vals': p_injector_vals, # --- NEW ---
             'total_mass_expelled': total_mass_expelled,
@@ -362,7 +365,7 @@ def run_time_simulation(is_blowdown, model_name, P1_bar_user, T1_c, P2_bar, D_mm
     # This function now acts as an orchestrator.
     # For non-blowdown (instantaneous) cases, it calculates directly.
     # For blowdown cases, it starts the threaded calculation.
-    
+
     if not is_blowdown:
         # --- MODIFIED: Run FAST, non-blowdown simulation directly ---
         P_injector_inlet_bar = P1_bar_user - pipe_loss_bar
@@ -385,7 +388,7 @@ def run_time_simulation(is_blowdown, model_name, P1_bar_user, T1_c, P2_bar, D_mm
 
         plot_time_simulation_results(time_vals, mdot_vals, total_m_vals, p1_vals, p2_vals, Δp_vals, model_name, p_injector=p_injector_vals)
         # No summary for this simple case
-        
+
     else:
         # --- MODIFIED: Run SLOW, blowdown simulation in a separate thread ---
         params = {
@@ -394,22 +397,22 @@ def run_time_simulation(is_blowdown, model_name, P1_bar_user, T1_c, P2_bar, D_mm
             'D_mm': D_mm, 'Cd': Cd, 'n_ports': n_ports, 'duration_s': duration_s,
             'pipe_loss_bar': pipe_loss_bar # --- NEW ---
         }
-        
+
         # Reset progress bar and status label
         progress_bar['value'] = 0
         status_var.set("Initializing...")
         progress_bar.grid() # Make it visible
         status_label.grid()
-        
+
         # Disable buttons to prevent re-clicks
         btn_run_time.config(state='disabled')
         btn_run_dp.config(state='disabled')
-        
+
         # Start the threaded calculation
         global result_queue
         result_queue = queue.Queue()
         threading.Thread(target=run_threaded_blowdown, args=(params, result_queue), daemon=True).start()
-        
+
         # Start polling the queue for updates
         root.after(100, check_thread_progress)
 
@@ -417,35 +420,38 @@ def check_thread_progress():
     """Periodically checks the queue for messages from the worker thread."""
     try:
         message = result_queue.get_nowait()
-        
+
         if 'progress' in message:
             progress = message['progress']
             progress_bar['value'] = progress
             status_var.set(f"Calculating... {progress:.1f}%")
             # Schedule the next check
             root.after(100, check_thread_progress)
-            
+
         elif 'results' in message:
             # --- Calculation Finished Successfully ---
             status_var.set("Done. Generating plots...")
             progress_bar['value'] = 100
-            
+
             res = message['results']
 
             total_m_vals = np.cumsum(np.array(res['mdot_vals']) * (res['time_vals'][1] - res['time_vals'][0] if len(res['time_vals']) > 1 else 0))
 
+            # --- MODIFIED ---
+            p_injector_vals = res['p_injector_vals']
             p2_vals = np.full_like(res['p1_vals'], float(entry_P2.get()) / (14.5038 if combo_P2unit.get() == 'psi' else 1))
-            Δp_vals = np.array(res['p1_vals']) - p2_vals
+            Δp_vals = np.array(p_injector_vals) - p2_vals # Delta-P is across the injector now
 
-            plot_time_simulation_results(res['time_vals'], res['mdot_vals'], total_m_vals, res['p1_vals'], p2_vals, Δp_vals, combo_time_model.get())
+            plot_time_simulation_results(res['time_vals'], res['mdot_vals'], total_m_vals, res['p1_vals'], p2_vals, Δp_vals, combo_time_model.get(), p_injector=p_injector_vals)
+            # --- END MODIFIED ---
             
             summary = "\n".join(f"{k}: {v:.4f}" if isinstance(v, float) else f"{k}: {v}" for k, v in res['summary'].items())
             messagebox.showinfo("Simulation Summary", summary)
-            
+
             # Clean up and re-enable UI
             status_var.set("Finished.")
             reset_ui_after_run()
-            
+
         elif 'error' in message:
             # --- An Error Occurred ---
             messagebox.showerror("Calculation Error", message['error'])
@@ -464,22 +470,41 @@ def reset_ui_after_run():
     btn_run_time.config(state='normal')
     btn_run_dp.config(state='normal')
 
-def plot_time_simulation_results(t,mdot,m_tot,p1,p2,Δp,model):
+# --- MODIFIED function signature and plotting logic ---
+def plot_time_simulation_results(t,mdot,m_tot,p1,p2,Δp,model,p_injector=None):
     if len(t)<2: return
     fig,(ax1,ax2,ax3)=plt.subplots(3,1,figsize=(10,12),sharex=True)
     fig.suptitle(f'Time Simulation ({model})',fontsize=16)
     ax1.plot(t,mdot); ax1.set_ylabel('ṁ (kg/s)'); ax1.set_title('Instantaneous Mass Flow'); ax1.grid(ls='--',lw=0.5)
     ax2.plot(t,m_tot,'r-'); ax2.set_ylabel('Cumulative Mass Expelled (kg)'); ax2.set_title('Cumulative Mass Expelled'); ax2.grid(ls='--',lw=0.5)
-    ax3.plot(t,p1,'g-',label='P1 (Upstream)'); ax3.plot(t,p2,'b-',label='P2 (Downstream)'); ax3.plot(t,Δp,'k--',label='ΔP')
+    
+    ax3.plot(t, p1, 'g-', label='P_tank (Upstream)')
+    if p_injector is not None:
+        ax3.plot(t, p_injector, 'm-.', label='P_injector (After Loss)')
+    ax3.plot(t, p2, 'b-', label='P2 (Downstream)')
+    ax3.plot(t, Δp, 'k--', label='ΔP (across injector)')
+    
     ax3.set_xlabel('Time (s)'); ax3.set_ylabel('Pressure (bar)'); ax3.set_title('Pressures'); ax3.grid(ls='--',lw=0.5); ax3.legend()
     plt.tight_layout(rect=[0,0.03,1,0.95]); plt.show()
 
 # ---------- E. GUI SETUP AND LOGIC ----------
-root = tk.Tk(); root.title("Hybrid Injector & Blowdown Modeller"); root.geometry("460x780") # Increased height for progress bar
+root = tk.Tk(); root.title("Hybrid Injector & Blowdown Modeller"); root.geometry("460x820") # --- MODIFIED height ---
 input_frame = tk.LabelFrame(root,text="Model Inputs",padx=10,pady=10); input_frame.pack(fill="x",padx=10,pady=10)
 row=0
 tk.Label(input_frame,text="Upstream Tank Pressure (P1):").grid(row=row,column=0,sticky="w"); entry_P1=tk.Entry(input_frame); entry_P1.insert(0,"60"); entry_P1.grid(row=row,column=1,sticky="ew")
 combo_P1unit=ttk.Combobox(input_frame,values=["psi","bar"],width=5,state='readonly'); combo_P1unit.set("bar"); combo_P1unit.grid(row=row,column=2,padx=5); row+=1
+
+# --- NEW GUI WIDGETS for Pipe Loss ---
+tk.Label(input_frame, text="Feed System Pipe Loss:").grid(row=row, column=0, sticky="w")
+entry_PipeLoss = tk.Entry(input_frame)
+entry_PipeLoss.insert(0, "2.5") # Default value in bar
+entry_PipeLoss.grid(row=row, column=1, sticky="ew")
+combo_PipeLossUnit = ttk.Combobox(input_frame, values=["bar", "psi"], width=5, state='readonly')
+combo_PipeLossUnit.set("bar")
+combo_PipeLossUnit.grid(row=row, column=2, padx=5)
+row += 1
+# --- END NEW ---
+
 temp_label=tk.StringVar(value="Upstream Tank Temp (T1):\n[N2O: -90 to 36 °C]"); tk.Label(input_frame,textvariable=temp_label,justify='left').grid(row=row,column=0,sticky="w")
 entry_T1=tk.Entry(input_frame); entry_T1.insert(0,"10"); entry_T1.grid(row=row,column=1,sticky="ew")
 combo_T1unit=ttk.Combobox(input_frame,values=["C","K"],width=5,state='readonly'); combo_T1unit.set("C"); combo_T1unit.grid(row=row,column=2,padx=5); row+=1
@@ -539,14 +564,25 @@ def validate_temp(T_input,unit):
         return None
     return T_c
 
+# --- MODIFIED to handle pipe loss ---
 def on_run_dp():
     try:
         T1_c = validate_temp(float(entry_T1.get()), combo_T1unit.get());
         if T1_c is None: return
         P1_val = float(entry_P1.get()); P1_bar = P1_val / 14.5038 if combo_P1unit.get() == "psi" else P1_val
-        run_models_vs_dp(P1_bar, T1_c, float(entry_D.get()), float(entry_Cd.get()), int(entry_ports.get()), combo_dpunit.get())
+        
+        pipe_loss_val = float(entry_PipeLoss.get())
+        pipe_loss_bar = pipe_loss_val / 14.5038 if combo_PipeLossUnit.get() == 'psi' else pipe_loss_val
+        
+        P_injector_inlet_bar = P1_bar - pipe_loss_bar
+        if P_injector_inlet_bar <= 0:
+            messagebox.showerror("Input Error", "Pressure after pipe loss must be positive.")
+            return
+
+        run_models_vs_dp(P_injector_inlet_bar, T1_c, float(entry_D.get()), float(entry_Cd.get()), int(entry_ports.get()), combo_dpunit.get())
     except Exception as e: messagebox.showerror("Input Error", f"Invalid input for ΔP plot.\n{e}")
 
+# --- MODIFIED to handle pipe loss ---
 def on_run_time():
     try:
         T1_c = validate_temp(float(entry_T1.get()), combo_T1unit.get());
@@ -554,15 +590,19 @@ def on_run_time():
         is_blow = blowdown_var.get(); P1_bar = 0.0
         if not is_blow: P1_val = float(entry_P1.get()); P1_bar = P1_val / 14.5038 if combo_P1unit.get() == "psi" else P1_val
         P2_val = float(entry_P2.get()); P2_bar = P2_val / 14.5038 if combo_P2unit.get() == "psi" else P2_val
+        
+        pipe_loss_val = float(entry_PipeLoss.get())
+        pipe_loss_bar = pipe_loss_val / 14.5038 if combo_PipeLossUnit.get() == 'psi' else pipe_loss_val
+
         init_mass = float(entry_initial_mass.get()) if is_blow else 0
         if is_blow and init_mass <= 0: messagebox.showerror("Input Error", "Initial mass must be positive for blowdown."); return
         V_tank_m3 = float(entry_tank_vol.get()) / 1000.0
         if V_tank_m3 <= 0: messagebox.showerror("Input Error", "Tank volume must be positive."); return
-        
-        # This function now decides whether to run the old way or the new threaded way
-        run_time_simulation(is_blow, combo_time_model.get(), P1_bar, T1_c, P2_bar, float(entry_D.get()), float(entry_Cd.get()), int(entry_ports.get()), V_tank_m3, float(entry_duration.get()), init_mass)
 
-    except Exception as e: 
+        # This function now decides whether to run the old way or the new threaded way
+        run_time_simulation(is_blow, combo_time_model.get(), P1_bar, T1_c, P2_bar, float(entry_D.get()), float(entry_Cd.get()), int(entry_ports.get()), V_tank_m3, float(entry_duration.get()), init_mass, pipe_loss_bar)
+
+    except Exception as e:
         messagebox.showerror("Input Error", f"Invalid input for Time plot.\n{e}")
         status_var.set("Input Error.")
         reset_ui_after_run()
