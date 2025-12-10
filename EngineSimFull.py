@@ -2,7 +2,7 @@
 # Hybrid-Injector Modeller + Tank Blow-Down GUI
 # (c) 2023-25    •    Based on original script by Aadam Awad + Tanin's Modifications
 #
-# Fully Corrected and Enhanced by Gemini:
+# Corrections and Enhancements:
 # - Integrated the detailed equilibrium blowdown model from BlowdownGeminiDyer.py.
 # - Implemented threading for the blowdown calculation to prevent GUI freezing.
 # - Added a real-time progress bar and status label for user feedback.
