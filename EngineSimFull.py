@@ -334,9 +334,9 @@ combo_PipeLossUnit = ttk.Combobox(input_frame, values=["bar", "psi"], width=5, s
 temp_label=tk.StringVar(value="Upstream Tank Temp (T1):\n[N2O: -90 to 36 °C]"); tk.Label(input_frame,textvariable=temp_label,justify='left').grid(row=row,column=0,sticky="w")
 entry_T1=tk.Entry(input_frame); entry_T1.insert(0,"10"); entry_T1.grid(row=row,column=1,sticky="ew")
 combo_T1unit=ttk.Combobox(input_frame,values=["C","K"],width=5,state='readonly'); combo_T1unit.set("C"); combo_T1unit.grid(row=row,column=2,padx=5); row+=1
-tk.Label(input_frame,text="Injector Diameter (mm):").grid(row=row,column=0,sticky="w"); entry_D=tk.Entry(input_frame); entry_D.insert(0,"1.0"); entry_D.grid(row=row,column=1,columnspan=2,sticky="ew"); row+=1
+tk.Label(input_frame,text="Injector Diameter (mm):").grid(row=row,column=0,sticky="w"); entry_D=tk.Entry(input_frame); entry_D.insert(0,"1.5"); entry_D.grid(row=row,column=1,columnspan=2,sticky="ew"); row+=1
 tk.Label(input_frame,text="Discharge Coefficient (Cd):").grid(row=row,column=0,sticky="w"); entry_Cd=tk.Entry(input_frame); entry_Cd.insert(0,"0.66"); entry_Cd.grid(row=row,column=1,columnspan=2,sticky="ew"); row+=1
-tk.Label(input_frame,text="Number of Ports:").grid(row=row,column=0,sticky="w"); entry_ports=tk.Entry(input_frame); entry_ports.insert(0,"4"); entry_ports.grid(row=row,column=1,columnspan=2,sticky="ew"); row+=1
+tk.Label(input_frame,text="Number of Ports:").grid(row=row,column=0,sticky="w"); entry_ports=tk.Entry(input_frame); entry_ports.insert(0,"3"); entry_ports.grid(row=row,column=1,columnspan=2,sticky="ew"); row+=1
 tk.Label(input_frame,text="Tank Volume (L):").grid(row=row,column=0,sticky="w"); entry_tank_vol=tk.Entry(input_frame); entry_tank_vol.insert(0,"4.54"); entry_tank_vol.grid(row=row,column=1,columnspan=2,sticky="ew"); row+=1
 input_frame.columnconfigure(1,weight=1)
 
